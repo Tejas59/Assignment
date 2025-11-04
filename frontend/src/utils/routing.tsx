@@ -1,10 +1,10 @@
 import { Route, Routes } from "react-router-dom";
-import ChatInput from "../components/ChatInput";
+import Home from "@/components/Home";
 
 const Routing = () => {
   return (
     <Routes>
-      <Route path="/" element={<ChatInput />} />
+      <Route path="/" element={<Home />} />
     </Routes>
   );
 };
