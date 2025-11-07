@@ -1,25 +1,34 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, type SetStateAction } from "react";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
-import { Brain, Paperclip, Send, X } from "lucide-react";
+import { Paperclip, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import axios from "axios";
 
 interface ChatInputProps {
-  setFileUrl?: React.Dispatch<React.SetStateAction<string | null>>;
   isLoading?: boolean;
   hideFileInputAndQuizMode?: boolean;
+  handleSendMessage: (
+    uploadedFileKeys?: { key: string; name: string }[]
+  ) => void;
+  input: string;
+  setInput: React.Dispatch<SetStateAction<string>>;
+}
+
+interface UploadFile {
+  id: string;
+  file: File;
 }
 
 const ChatInput = ({
-  setFileUrl,
   isLoading,
-  hideFileInputAndQuizMode,
+  input,
+  setInput,
+  handleSendMessage,
 }: ChatInputProps) => {
-  const [input, setInput] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<UploadFile[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [quizMode, setQuizMode] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,43 +38,66 @@ const ChatInput = ({
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (selectedFile.type !== "application/pdf") {
-        setError("Only PDF files are allowed.");
-        e.target.value = "";
-        setFile(null);
-        if (setFileUrl) {
-          setFileUrl(null);
-        }
-      } else {
-        setError(null);
-        setFile(selectedFile);
-        const blobUrl = URL.createObjectURL(selectedFile);
-        if (setFileUrl) {
-          setFileUrl(blobUrl);
-        }
-      }
+    const selectedFiles = Array.from(e.target.files || []);
+    const validFiles = selectedFiles.filter((file) =>
+      [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ].includes(file.type)
+    );
+
+    if (validFiles.length !== selectedFiles.length) {
+      setError("Only PDF or DOC/DOCX files are allowed.");
+    } else {
+      const newUploads = validFiles.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+      }));
+
+      setFiles((prev) => [...prev, ...newUploads]);
     }
   };
 
-  const removeFile = () => {
-    setFile(null);
+  const handleRemoveFileClick = (id: string) => {
+    setFiles((prev) => prev.filter((file) => file.id !== id));
     setError(null);
-    if (setFileUrl) {
-      setFileUrl(null);
-    }
-    if (quizMode) setQuizMode(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-   
-    
-    setInput("");
-    setFile(null);
-  };
+    setError(null);
+    const uploadedFileKeys= [];
+    if (files && files.length >= 0) {
+      for (const obj of files) {
+        const presignRes = await axios.post(
+          "https://yve9bdv04d.execute-api.ap-south-1.amazonaws.com/Prod/get-presigned-url",
+          {
+            fileName: obj.file.name,
+            contentType: obj.file.type,
+          },
+          {
+            headers: { "Content-Type": "application/json" },
+          }
+        );
 
+        const { uploadUrl, key } = presignRes.data;
+
+        await axios.put(uploadUrl, obj.file, {
+          headers: {
+            "Content-Type": obj.file.type,
+          },
+        });
+
+        uploadedFileKeys.push({ key, name: obj.file.name });
+      }
+    }
+    handleSendMessage(uploadedFileKeys);
+    setInput("");
+    setFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -90,31 +122,40 @@ const ChatInput = ({
       <form onSubmit={handleSubmit} className="w-full">
         <input
           type="file"
-          accept=".pdf"
+          accept=".pdf,.doc,.docx"
           ref={fileInputRef}
           className="hidden"
+          multiple
           onChange={handleFileChange}
         />
 
-        {file && (
-          <div className="flex items-center justify-between bg-white border rounded-md p-2 mb-2 text-sm text-gray-700 max-w-60">
-            <span className="truncate ">{file.name}</span>
-            <button
-              type="button"
-              onClick={removeFile}
-              className="text-red-500 hover:text-red-700"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {files &&
+            files.map(({ id, file }) => {
+              return (
+                <div
+                  key={id}
+                  className="flex items-center justify-between bg-white border rounded-md p-2 mb-2 text-sm text-gray-700 max-w-60"
+                >
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFileClick(id)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+        </div>
 
         {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
 
         <Textarea
           ref={textareaRef}
           placeholder={
-            file
+            files
               ? "Write your question about the uploaded PDF..."
               : "Ask anything about your PDF document"
           }
@@ -122,54 +163,32 @@ const ChatInput = ({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isLoading || quizMode || !!file}
+          disabled={isLoading}
           rows={1}
         />
 
         <div className="mt-2 flex items-center justify-between">
           <div className="flex gap-2">
-            {!hideFileInputAndQuizMode && (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={isLoading || !!file}
-                  onClick={handleFileClick}
-                  className="h-9 w-9 rounded-md border border-gray-300"
-                >
-                  <Paperclip className="h-5 w-5 text-gray-600" />
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={isLoading || !file}
-                  className={`h-9 w-9 rounded-md border border-gray-3001 ${
-                    quizMode &&
-                    "bg-black text-white hover:bg-black! cursor-default"
-                  }`}
-                  onClick={() => setQuizMode(!quizMode)}
-                >
-                  <Brain className="h-5 w-5 text-gray-600" />
-                </Button>
-              </>
-            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={isLoading}
+              onClick={handleFileClick}
+              className="h-9 w-9 rounded-md border border-gray-300"
+            >
+              <Paperclip className="h-5 w-5 text-gray-600" />
+            </Button>
           </div>
 
           <Button
             type="submit"
             variant="ghost"
             size="icon"
-            disabled={
-              isLoading ||
-              (file && !quizMode) ||
-              (!quizMode && !file && !input?.trim())
-            }
+            disabled={isLoading || !input}
             className={cn(
               "bg-blue-600 text-white h-9 w-9 p-2 rounded-md ",
-              !input.trim() && !file && "opacity-50 cursor-not-allowed"
+              !input.trim() && !files && "opacity-50 cursor-not-allowed"
             )}
           >
             <Send className="h-5 w-5" />
