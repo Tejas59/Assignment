@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GenAI Lambda Stack (no Layer, OpenAI optimized)
+
+Globals:
+  Function:
+    Timeout: 900          
+    MemorySize: 2048      
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        AWS_REGION_INDIA: 
+        UPLOAD_BUCKET: 
+        GEMINI_API_KEY: 
+        PINECONE_API_KEY: 
+        PINECONE_INDEX_NAME: 
+        PINECONE_ENVIRONMENT: 
+        OPENAI_API_KEY: 
+
+Resources:
+  GenAILambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: genai-lambda
+      CodeUri: src/
+      Handler: index.handler
+      Events:
+        ApiGateway:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiEndpoint:
+    Description: "Your API Gateway endpoint"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"

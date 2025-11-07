@@ -1,4 +1,3 @@
-"use client";
 import React, { useEffect, useRef, useState, type SetStateAction } from "react";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
@@ -51,7 +50,7 @@ const ChatInput = ({
       setError("Only PDF or DOC/DOCX files are allowed.");
     } else {
       const newUploads = validFiles.map((file) => ({
-        id: crypto.randomUUID(),
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
       }));
 
