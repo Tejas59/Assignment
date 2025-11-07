@@ -72,7 +72,7 @@ const ChatInput = ({
     if (files && files.length >= 0) {
       for (const obj of files) {
         const presignRes = await axios.post(
-          "https://yve9bdv04d.execute-api.ap-south-1.amazonaws.com/Prod/get-presigned-url",
+          "https://cvrob3x3t2.execute-api.ap-south-1.amazonaws.com/default/get-presigned-url",
           {
             fileName: obj.file.name,
             contentType: obj.file.type,

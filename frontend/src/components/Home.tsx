@@ -24,18 +24,18 @@ const Home = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     setIsAiLoading(true);
-
-    const res = await axios.post(
-      "https://yve9bdv04d.execute-api.ap-south-1.amazonaws.com/Prod/process-prompt",
-      {
-        prompt: input,
-        files: uploadedFileKeys ?? [],
-        modelType: modelType,
-      }
-    );
-
-    const backendResult = res.data;
     try {
+      const res = await axios.post(
+        "https://yve9bdv04d.execute-api.ap-south-1.amazonaws.com/Prod/process-prompt",
+        {
+          prompt: input,
+          files: uploadedFileKeys ?? [],
+          modelType: modelType,
+        }
+      );
+
+      const backendResult = res.data;
+
       if (backendResult.error) {
         setMessages((prev) => [
           ...prev,
