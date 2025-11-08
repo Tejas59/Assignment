@@ -13,11 +13,13 @@ import {
   generatePdfAndUpload,
 } from "./fileGenerators.mjs";
 import OpenAI from "openai";
+const require = createRequire(import.meta.url);
+
+const PDFParser = require("pdf2json");
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION_INDIA,
 });
-
 const bucket = process.env.UPLOAD_BUCKET;
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
@@ -75,8 +77,12 @@ export const handler = async (event) => {
     If not, return only "text". No explanation.
     User message: "${prompt}"
     `;
-    const intent = await model.generateContent(detectDownloadPrompt);
-    const outputType = intent.response.text().trim();
+    const detectResponse = await openai.responses.create({
+      model: "gpt-4o-mini",
+      input: detectDownloadPrompt,
+    });
+
+    const outputType = detectResponse.output_text.trim();
     const fullPrompt = `
     You are a file generation assistant. Based on the user's request and provided context,
     you will generate a structured response in **JSON** that can be used to create a downloadable file.
@@ -181,7 +187,6 @@ export const handler = async (event) => {
     return response(500, { error: err.message });
   }
 };
-
 async function extractTextFromFiles(files) {
   let allText = "";
   for (const file of files) {
@@ -190,7 +195,7 @@ async function extractTextFromFiles(files) {
     );
     const buffer = await streamToBuffer(res.Body);
     if (file.name.endsWith(".pdf")) {
-      const text = await extractTextFromBuffer(buffer);
+      const text = await extractTextFromPdf(buffer);
       allText += text;
     } else if (file.name.endsWith(".docx") || file.name.endsWith(".doc")) {
       const data = await mammoth.extractRawText({ buffer });
@@ -199,7 +204,6 @@ async function extractTextFromFiles(files) {
   }
   return allText;
 }
-
 async function cleanupS3FilesExcept(currentKeys) {
   const list = await s3.send(
     new ListObjectsV2Command({ Bucket: bucket, Prefix: "uploads/" })
@@ -214,8 +218,8 @@ async function cleanupS3FilesExcept(currentKeys) {
 async function cleanupPineconeIndex() {
   try {
     const stats = await index.describeIndexStats();
-    if (stats.totalVectorCount > 0) {
-      await index.delete({ deleteAll: true });
+    if (stats.totalRecordCount > 0) {
+      await index._deleteAll();
     }
   } catch (err) {
     console.warn("⚠️ Pinecone cleanup skipped:", err.message);
@@ -232,7 +236,6 @@ function chunkText(text, size) {
     chunks.push(text.slice(i, i + size));
   return chunks;
 }
-
 function response(status, body) {
   return {
     statusCode: status,
@@ -245,21 +248,40 @@ function response(status, body) {
   };
 }
 
-async function extractTextFromBuffer(buffer) {
-  try {
-    const text = buffer.toString("latin1");
-    const matches = [...text.matchAll(/\(([^)]+)\)/g)];
-    const extracted = matches.map((m) =>
-      m[1]
-        .replace(/\\([nrtbf()])/g, "$1")
-        .replace(/\\(\d{1,3})/g, (m, oct) =>
-          String.fromCharCode(parseInt(oct, 8))
-        )
-    );
-    const cleanText = extracted.join(" ").replace(/\s+/g, " ").trim();
-    return cleanText;
-  } catch (err) {
-    console.error("Error extracting PDF text:", err);
-    return "";
-  }
+export async function extractTextFromPdf(buffer) {
+  return new Promise((resolve, reject) => {
+    try {
+      const pdfParser = new PDFParser();
+
+      pdfParser.on("pdfParser_dataError", (errData) => {
+        console.error("❌ PDF parse error:", errData.parserError);
+        reject(errData.parserError);
+      });
+
+      pdfParser.on("pdfParser_dataReady", (pdfData) => {
+        try {
+          const texts = [];
+          for (const page of pdfData.Pages || []) {
+            for (const t of page.Texts || []) {
+              const raw = t.R.map((r) => r.T).join("");
+              let decoded;
+              try {
+                decoded = decodeURIComponent(raw);
+              } catch {
+                decoded = raw;
+              }
+              texts.push(decoded);
+            }
+          }
+          resolve(texts.join(" "));
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+      pdfParser.parseBuffer(buffer);
+    } catch (err) {
+      reject(err);
+    }
+  });
 }
